@@ -35,7 +35,7 @@ RUN wget https://github.com/DanBloomberg/leptonica/releases/download/1.83.1/lept
 RUN tar xvf leptonica-1.83.1.tar.gz
 WORKDIR /root/temp/leptonica-1.83.1
 RUN ./configure
-RUN make -j$(nproc)
+RUN make
 RUN checkinstall
 RUN ldconfig
 
@@ -46,7 +46,7 @@ WORKDIR /root/temp/tesseract-5.3.1
 RUN ./autogen.sh
 RUN mkdir ~/local
 RUN ./configure --prefix=$HOME/local/
-RUN make -j$(nproc)
+RUN make
 RUN make install
 
 WORKDIR /root/local/share/tessdata
