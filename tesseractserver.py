@@ -4,13 +4,13 @@ import tornado.ioloop
 import tornado.web
 import optparse
 import pprint
-import Image
-import StringIO
+from PIL import Image
+import io
 import os
 import uuid
 
 # for downloading PNG image from url
-import urllib, cStringIO
+import urllib.request, urllib.parse, urllib.error, io
 import json
 
 # C API wrapper
@@ -34,14 +34,14 @@ class FileUploadHandler(tornado.web.RequestHandler):
                     '<input type="file" name="the_file" />'+
                     '<input type="submit" value="Submit" />'+'</form>'+
                     '<pre class="prettyprint">')
- 
+
     def post(self):
         self.set_header("Content-Type", "text/html")
-        self.write("") 
+        self.write("")
         # create a unique ID file
         tempname = str(uuid.uuid4()) + ".png"
-        tmpImg = Image.open(StringIO.StringIO(self.request.files.items()[0][1][0]['body']))
-        
+        tmpImg = Image.open(io.StringIO(list(self.request.files.items())[0][1][0]['body']))
+
         # force resize to width=150px if the incoming image is too small for better precision
         targetWidth = 150
         width, height = tmpImg.size
@@ -49,13 +49,13 @@ class FileUploadHandler(tornado.web.RequestHandler):
             ratio = float(targetWidth) / width
             newHeight = int(height * ratio)
             tmpImg = tmpImg.resize((targetWidth, newHeight), Image.ANTIALIAS)
-            print "resize image to (" + str(targetWidth) + "," + str(newHeight) + ")"
+            print("resize image to (" + str(targetWidth) + "," + str(newHeight) + ")")
 
         # save tmp image
         global workingFolderPath
         tmpFilePath = workingFolderPath + "/static/" + tempname
-        print "workingFolderPath: ", workingFolderPath
-        print "tmpFilePath: ", tmpFilePath
+        print("workingFolderPath: ", workingFolderPath)
+        print("tmpFilePath: ", tmpFilePath)
         tmpImg.save(tmpFilePath)
 
         # do OCR, print result
@@ -74,7 +74,7 @@ class FileUploadHandler(tornado.web.RequestHandler):
         response = { 'result': result }
         self.write(response)
 
-        print response
+        print(response)
 
     def cleanup(self, filePath):
         try:
@@ -94,7 +94,7 @@ class ImageUrlHandler(tornado.web.RequestHandler):
         html = """
                 <html>
                 <title>Tesseract Web Service</title>
-                <script src="//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script> 
+                <script src="//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
                 <body>
                     <h2>Tesseract Web Service</h2>
                     <form name="mainForm" id="mainForm" action="" method="POST" enctype="multipart/form-data">
@@ -119,7 +119,7 @@ class ImageUrlHandler(tornado.web.RequestHandler):
 
         # force resize to width=150px if the incoming image is too small for better precision
         minWidth = 150;
- 
+
         # do OCR, get result string
         global wrapper
         result = wrapper.imageUrlToString(url, minWidth)
@@ -132,13 +132,13 @@ class ImageUrlHandler(tornado.web.RequestHandler):
         response = { 'result': result, 'url': url }
         self.write(response)
 
-        print response
+        print(response)
 
- 
+
 settings = {
     "static_path": os.path.join(os.path.dirname(__file__), "static"),
 }
- 
+
 application = tornado.web.Application([
     (r"/upload", FileUploadHandler),
     (r"/fetchurl", ImageUrlHandler)
@@ -167,19 +167,18 @@ def main():
         parser.error('tessdata not given')
     else:
         tessdata = options.tessdata
-    
+
     # create global wrapper instance for reuse
     wrapper = TesseactWrapper(lang, libpath, tessdata)
 
     port = options.port
-    if not options.port:   # if port is not given, use the default one 
+    if not options.port:   # if port is not given, use the default one
         port = 1688
 
     http_server = tornado.httpserver.HTTPServer(application)
     http_server.listen(port)
-    print "Tesseract Web Service starts at port " + str(port) + "."
+    print("Tesseract Web Service starts at port " + str(port) + ".")
     tornado.ioloop.IOLoop.instance().start()
- 
+
 if __name__ == "__main__":
     main()
-

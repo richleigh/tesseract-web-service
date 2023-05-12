@@ -3,7 +3,7 @@
 
 # Copyright 2013
 # Author: Mark Peng
-# 
+#
 # Extended from Zdenko Podobný's work at: http://code.google.com/p/tesseract-ocr/wiki/APIExample
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,69 +23,61 @@ import sys
 import optparse
 import ctypes
 from ctypes import pythonapi, util, py_object
-import StringIO
-import urllib, cStringIO
-import Image
+import io
+import urllib.request, urllib.parse, urllib.error, io
+from PIL import Image
+import pathlib
 
 """
 Get result string directly from tesseract C API
 """
 class TesseactWrapper:
     def __init__(self, lang, libpath, tessdata):
-        libname_302 = libpath + "/libtesseract.so.3.0.2"
-        libname_303 = libpath + "/libtesseract.so.3.0.3"
-        libname_alt = "/libtesseract.so.3"
+        libname = pathlib.Path(libpath) / "libtesseract.so"
 
-        try:
-            self.tesseract = ctypes.cdll.LoadLibrary(libname_302)
-        except:
-            try:
-                self.tesseract = ctypes.cdll.LoadLibrary(libname_303)    
-            except:
-                try:
-                    self.tesseract = ctypes.cdll.LoadLibrary(libname_alt)
-                except:
-                    print("Trying to load '%s'..." % libname)
-                    print("Trying to load '%s'..." % libname_alt)
-                    print("Loading failed from the locations above.")
-                    exit(1)
+        print("Trying to load '%s'..." % libname)
+        self.tesseract = ctypes.cdll.LoadLibrary(str(libname))
 
-        self.tesseract.TessVersion.restype = ctypes.c_char_p
-        tesseract_version = self.tesseract.TessVersion()
+        self.tesseract.TessBaseAPICreate.restype = ctypes.c_void_p
+        self.tesseract.TessBaseAPICreate.argtypes = []
 
-        # preprocessing version name 
-        trimmed_version = tesseract_version
-        if tesseract_version.count('.') > 1:
-            trimmed_version = tesseract_version[:(tesseract_version.index('.') + 3)]
+        self.tesseract.TessBaseAPIInit2.restype = ctypes.c_int
+        self.tesseract.TessBaseAPIInit2.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
 
-        # We need to check library version because libtesseract.so.3 is symlink
-        # and can point to other version than 3.02
-        if float(trimmed_version) < 3.02:
-            print("Found tesseract-ocr library version %s." % tesseract_version)
-            print("C-API is present only in version 3.02!")
-            exit(2)
+        self.tesseract.TessBaseAPISetImage.restype = None
+        self.tesseract.TessBaseAPISetImage.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
+
+        self.tesseract.TessBaseAPIGetUTF8Text.restype = ctypes.c_char_p
+        self.tesseract.TessBaseAPIGetUTF8Text.argtypes = [ctypes.c_void_p]
+
+        self.tesseract.TessBaseAPIDelete.restype = None
+        self.tesseract.TessBaseAPIDelete.argtypes = [ctypes.c_void_p]
+
+        self.tesseract.TessBaseAPIProcessPages.restype = ctypes.c_char_p
+        self.tesseract.TessBaseAPIProcessPages.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_int]
 
         self.api = self.tesseract.TessBaseAPICreate()
 
-        rc = self.tesseract.TessBaseAPIInit3(self.api, tessdata, lang)
+        OEM_TESSERACT_LSTM_COMBINED = 3
+
+        rc = self.tesseract.TessBaseAPIInit2(self.api, tessdata.encode("utf-8"), lang.encode("utf-8"), OEM_TESSERACT_LSTM_COMBINED)
         if (rc):
             self.tesseract.TessBaseAPIDelete(self.api)
             print("Could not initialize tesseract.\n")
-            exit(3)
+            exit(1)
 
     def imageFileToString(self, filePath):
-        
+
         # Running tesseract-ocr
-        text_out = self.tesseract.TessBaseAPIProcessPages(self.api, filePath, None, 0)
-        result_text = ctypes.string_at(text_out)
-        print 'Result: ', result_text
+        text_out = self.tesseract.TessBaseAPIProcessPages(self.api, filePath.encode("utf-8"), None, 0)
+        result_text = ctypes.string_at(text_out).decode("utf-8")
 
         return result_text.replace("\n", "")
 
     def imageUrlToString(self, url, minWidth):
 
         # download image from url
-        file = cStringIO.StringIO(urllib.urlopen(url).read())
+        file = io.BytesIO(urllib.request.urlopen(url).read())
         tmpImg = Image.open(file)
         tmpImg = tmpImg.convert("RGBA")
 
@@ -96,7 +88,7 @@ class TesseactWrapper:
             ratio = float(minWidth) / width
             newHeight = int(height * ratio)
             tmpImg = tmpImg.resize((minWidth, newHeight), Image.ANTIALIAS)
-            print "resize image to (" + str(minWidth) + "," + str(newHeight) + ")"
+            width = minWidth
 
         # transform data bytes to single dimensional array
         data = tmpImg.getdata()
@@ -107,26 +99,21 @@ class TesseactWrapper:
                 copyData[cursor] = data[i][j]
 
         # compute stride
-        bytesPerLine = minWidth * 4
+        bytesPerLine = width * 4
 
         # create a ctype ubyte array and copy data to it
-        arrayLength = newHeight * minWidth * 4
+        arrayLength = newHeight * width * 4
         ubyteArray = (ctypes.c_ubyte * arrayLength)()
-        for i in xrange(arrayLength):
+        for i in range(arrayLength):
             ubyteArray[i] = copyData[i]
 
-        # call SetImage  
-        self.tesseract.TessBaseAPISetImage.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_ubyte), ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
-        self.tesseract.TessBaseAPISetImage.restype = ctypes.c_void_p
-        self.tesseract.TessBaseAPISetImage(self.api, ubyteArray, minWidth, newHeight, 4, bytesPerLine)
+        # call SetImage
+        self.tesseract.TessBaseAPISetImage(self.api, ubyteArray, width, newHeight, 4, bytesPerLine)
 
         # call GetUTF8Text
-        self.tesseract.TessBaseAPIGetUTF8Text.restype = ctypes.c_char_p
-        text_out =  self.tesseract.TessBaseAPIGetUTF8Text(self.api)
-        result_text = ctypes.string_at(text_out)
-        print 'Result: ', result_text
-  
-        return result_text.replace("\n", "")
+        text_out =  self.tesseract.TessBaseAPIGetUTF8Text(self.api).decode("utf-8")
+
+        return text_out
 
 def main():
     parser = optparse.OptionParser()
