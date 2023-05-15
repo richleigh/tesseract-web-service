@@ -40,7 +40,7 @@ class FileUploadHandler(tornado.web.RequestHandler):
         self.write("")
         # create a unique ID file
         tempname = str(uuid.uuid4()) + ".png"
-        tmpImg = Image.open(io.StringIO(list(self.request.files.items())[0][1][0]['body']))
+        tmpImg = Image.open(io.BytesIO(list(self.request.files.items())[0][1][0]['body']))
 
         # force resize to width=150px if the incoming image is too small for better precision
         targetWidth = 150
